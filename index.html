@@ -61,11 +61,12 @@
 <script id="fragmentShader" type="x-shader/x-fragment">
     precision highp float;
 
-    #define ITERS 300
+    #define ITERS 250
     #define COLOR1 vec3(0.0)
     #define COLOR2 vec3(1.0, 0.3, 0.05)
     #define COLOR3 vec3(1.0, 0.8, 0.1)
     #define COLOR4 vec3(0.2, 0.05, 0.4)
+    #define OFFSET (0.25 / 512.0)
 
     uniform vec2 ll;
     uniform vec2 ur;
@@ -112,10 +113,29 @@
     }
 
     void main() {
-        vec2 complex = mix(ll, ur, pos);
-        vec4 result = iterateMandelbrot(complex);
-        vec3 color = result.w > 2.0 ? colorGradient(result.zw) : vec3(0.0);
-        gl_FragColor = vec4(color, 1.0);
+
+        /* 4 SUPERSAMPLES FOR ANTIALIASING */
+
+        vec3 color_total = vec3(0.0);
+
+        vec2 complex1 = mix(ll, ur, pos + vec2(-OFFSET));
+        vec4 result1 = iterateMandelbrot(complex1);
+        color_total += result1.w > 2.0 ? colorGradient(result1.zw) : vec3(0.0);
+
+        vec2 complex2 = mix(ll, ur, pos + vec2(-OFFSET, OFFSET));
+        vec4 result2 = iterateMandelbrot(complex2);
+        color_total += result2.w > 2.0 ? colorGradient(result2.zw) : vec3(0.0);
+
+        vec2 complex3 = mix(ll, ur, pos + vec2(OFFSET));
+        vec4 result3 = iterateMandelbrot(complex3);
+        color_total += result3.w > 2.0 ? colorGradient(result3.zw) : vec3(0.0);
+
+        vec2 complex4 = mix(ll, ur, pos + vec2(OFFSET, -OFFSET));
+        vec4 result4 = iterateMandelbrot(complex4);
+        color_total += result4.w > 2.0 ? colorGradient(result4.zw) : vec3(0.0);
+
+        gl_FragColor = vec4(0.25 * color_total, 1.0);
+
     }
 </script>
 
