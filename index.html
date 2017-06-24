@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mandelbrot Viewer</title>
+
+    <link href="css/style.css" rel="stylesheet">
+
+<body>
+<div class="container">
+    <div align="center">
+
+        <h1>Mandelbrot Viewer</h1>
+
+        <h3>Click to zoom, press Z to toggle zoom direction</h3>
+
+        <div id="interactivity-container">
+            <div id="canvas-container">
+            <canvas tabindex="1" id="webglCanvas" style="border: none; background-color: black;" width="512" height="512"></canvas>
+            </div>
+
+            <table id="readout">
+                <tr>
+                    <td class="row1">Zoom factor:</td>
+                    <td class="row2" id="zoom-readout"></td>
+                </tr>
+                <tr>
+                    <td class="row1">Center X:</td>
+                    <td class="row2" id="center-x-readout"></td>
+                </tr>
+                <tr>
+                    <td class="row1">Center Y:</td>
+                    <td class="row2" id="center-y-readout"></td>
+                </tr>
+            </table>
+        </div>
+
+    </div>
+</div>
+
+<script src="js/jquery-3.1.1.min.js"></script>
+<script src="js/webGL_boilerplate.js"></script>
+
+<!-- VERTEX SHADER -->
+<script id="vertexShader" type="x-shader/x-vertex">
+    attribute vec2 position;
+    attribute vec2 uv;
+
+    varying vec2 pos;
+
+    void main() {
+        pos = uv;
+        gl_Position = vec4(position, 0.0, 1.0);
+    }
+</script>
+
+<!-- FRAGMENT SHADER -->
+<script id="fragmentShader" type="x-shader/x-fragment">
+    precision highp float;
+
+    #define ITERS 300
+
+    uniform vec2 ll;
+    uniform vec2 ur;
+
+    varying vec2 pos;
+
+    vec2 complexSquare(vec2 c) {
+        return vec2((c.x * c.x) - (c.y * c.y), 2.0 * (c.x * c.y));
+    }
+
+    vec3 iterateMandelbrot(vec2 c) {
+        vec2 initial = vec2(0.0, 0.0);
+        int iters = 0;
+
+        for (int i = 0; i < ITERS; i++) {
+            initial = complexSquare(initial) + c;
+            iters = i;
+
+            // Sqrt-less check for divergence
+            if ((initial.x * initial.x) + (initial.y * initial.y) > 4.0) break;
+        }
+
+        return vec3(initial, float(iters));
+    }
+
+    vec3 colorGradient(float f) {
+        return vec3(1.0 - pow(1.0 - (f / float(ITERS)), 2.0));
+    }
+
+    void main() {
+        vec2 complex = mix(ll, ur, pos);
+        vec3 result = iterateMandelbrot(complex);
+        bool diverged = (result.x * result.x) + (result.y * result.y) > 4.0;
+        vec3 color = diverged ? colorGradient(result.z) : vec3(1.0);
+        gl_FragColor = vec4(color, 1.0);
+    }
+</script>
+
+<!-- WEBGL SETUP -->
+<script>
+
+    /* PROGRAM INITIALIZATION */
+
+    var gl = initializeWebGL("webglCanvas");
+    var canvasDim = 512;
+    var program = createGlslProgram(gl, "vertexShader", "fragmentShader");
+    var fsq = createShape(gl,
+        [
+            -1.0, -1.0, 0.0, 0.0,
+            1.0, -1.0, 1.0, 0.0,
+            1.0, 1.0, 1.0, 1.0,
+            -1.0, 1.0, 0.0, 1.0
+        ],
+        [
+            0, 1, 2,
+            0, 2, 3
+        ]
+    );
+
+    /* WINDOW BOUND ATTRIBUTES */
+
+    var old_width = 4.0;
+    var old_ll = [-2.0, -2.0];
+    var old_ur = [2.0, 2.0];
+
+    var curr_width = 4.0;
+    var curr_ll = [-2.0, -2.0];
+    var curr_ur = [2.0, 2.0];
+
+    var new_width = null;
+    var new_ll = null;
+    var new_ur = null;
+
+    var is_transitioning = false;
+    var current_frame = 0;
+    var num_transition_frames = 20;
+
+    var min_zoom_width = 0.00002;
+    var max_zoom_width = 30;
+
+</script>
+
+<!-- FUNCTION FOR DRAWING MANDLEBROT ON FULL SCREEN QUAD -->
+<script>
+
+    function drawMandelbrot() {
+        gl.useProgram(program);
+
+        gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        /* SET UNIFORMS */
+
+        var lowerLeftLocation = gl.getUniformLocation(program, "ll");
+        gl.uniform2f(lowerLeftLocation, curr_ll[0], curr_ll[1]);
+        var upperRightLocation = gl.getUniformLocation(program, "ur");
+        gl.uniform2f(upperRightLocation, curr_ur[0], curr_ur[1]);
+
+        /* SET UP ATTRIBUTES */
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, fsq.vertexBuffer);
+
+        var vertPosition = gl.getAttribLocation(program, "position");
+        gl.enableVertexAttribArray(vertPosition);
+        gl.vertexAttribPointer(vertPosition, 2, gl.FLOAT, false, 4 * 4, 0);
+
+        var vertTexCoord = gl.getAttribLocation(program, "uv");
+        gl.enableVertexAttribArray(vertTexCoord);
+        gl.vertexAttribPointer(vertTexCoord, 2, gl.FLOAT, false, 4 * 4, 4 * 2);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+        /* DRAW */
+
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, fsq.indexBuffer);
+        gl.drawElements(gl.TRIANGLES, fsq.size, gl.UNSIGNED_SHORT, 0);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+
+        gl.useProgram(null);
+    }
+
+</script>
+
+<!-- WEBGL RENDER/UPDATE CODE -->
+<script>
+
+    /* ZOOM/CURSOR MODE VARIABLES */
+    var zoom = true;
+    var cursor_bank = 'zoom-in';
+    var animationID;
+
+    function boundsOk() {
+        return !((zoom && curr_width < min_zoom_width) || ((!zoom) && curr_width > max_zoom_width));
+    }
+
+    function updateBounds(event) {
+        /* Change curr values into old values */
+        old_width = curr_width;
+        old_ll = curr_ll.slice();
+        old_ur = curr_ur.slice();
+
+        var absoluteX = (event.offsetX < 0) ? 0.0 : event.offsetX / (canvasDim - 1);
+        var absoluteY = (event.offsetY < 0) ? 1.0 : (canvasDim - 1 - event.offsetY) / (canvasDim - 1);
+        center = [old_ll[0] + old_width * absoluteX, old_ll[1] + old_width * absoluteY];
+
+        /* Set target values */
+        new_width = old_width * (zoom ? 0.5 : 2.0);
+        new_ll = [center[0] - new_width/2.0, center[1] - new_width/2.0];
+        new_ur = [center[0] + new_width/2.0, center[1] + new_width/2.0];
+
+        /* Signal start of transition */
+        $('#webglCanvas').css('cursor', 'default');
+        is_transitioning = true;
+        current_frame = 0;
+    }
+
+    function lerp(start, end, amt) {
+        return start * (1.0 - amt) + end * amt;
+    }
+
+    function doTransition() {
+        if (current_frame >= num_transition_frames) {
+            curr_width = new_width;
+            curr_ll = new_ll.slice();
+            curr_ur = new_ur.slice();
+            is_transitioning = false;
+            return;
+        }
+
+        var progress = current_frame / num_transition_frames;
+        curr_width = lerp(old_width, new_width, progress);
+        curr_ll = [
+            lerp(old_ll[0], new_ll[0], progress), 
+            lerp(old_ll[1], new_ll[1], progress)
+        ];
+        curr_ur = [
+            lerp(old_ur[0], new_ur[0], progress), 
+            lerp(old_ur[1], new_ur[1], progress)
+        ];
+
+        current_frame++;
+    }
+
+    function updateText() {
+        var center = [
+            (curr_ll[0] + curr_ur[0]) / 2.0,
+            (curr_ll[1] + curr_ur[1]) / 2.0,
+        ];
+
+        var zoom_factor = (2.0 / curr_width).toFixed(1);
+
+        $('#zoom-readout').text(zoom_factor);
+        $('#center-x-readout').text(center[0].toFixed(15));
+        $('#center-y-readout').text(center[1].toFixed(15));
+    }
+
+    $(window).keydown(function(event){
+        if (event.which == 90) {
+            zoom = !zoom;
+            cursor_bank = zoom ? 'zoom-in' : 'zoom-out';
+            if (!is_transitioning) {
+                $('#webglCanvas').css('cursor', cursor_bank);
+            }
+        }
+    });
+
+    $('#webglCanvas').click(function(event){
+        if (!is_transitioning && boundsOk()) {
+            updateBounds(event);
+            window.requestAnimationFrame(updateWebGL);
+        }
+    });
+
+    function updateWebGL(time) {
+
+        drawMandelbrot();
+        updateText();
+
+        if (is_transitioning) {
+            doTransition();
+            window.requestAnimationFrame(updateWebGL);
+        }
+
+        $('#webglCanvas').css('cursor', cursor_bank);
+    }
+
+    $('#webglCanvas').css('cursor', cursor_bank);
+    window.requestAnimationFrame(updateWebGL);
+
+</script>
+
+</body>
+</html>
